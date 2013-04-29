@@ -20,7 +20,7 @@ class ParameterView extends Backbone.View
       $('.model-signature', $(@el)).html(@model.signature)
 
     contentTypeModel =
-      isParam: false
+      isParam: true 
 
     # support old syntax
     if @model.supportedContentTypes
