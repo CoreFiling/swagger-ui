@@ -22,9 +22,16 @@ class SwaggerUi extends Backbone.Router
     @options = options
 
     # Set the callbacks
-    @options.success = => @render()
+    @options.success = => 
+      @render()
     @options.progress = (d) => @showMessage(d)
-    @options.failure = (d) => @onLoadFailure(d)
+    @options.failure = (d) => 
+      if @api and @api.isValid is false
+        log "not a valid 2.0 spec, loading legacy client"
+        @api = new SwaggerApi(@options)
+        @api.build()
+      else
+        @onLoadFailure(d)
 
     # Create view to handle the header inputs
     @headerView = new HeaderView({el: $('#header')})
@@ -32,34 +39,77 @@ class SwaggerUi extends Backbone.Router
     # Event handler for when the baseUrl/apiKey is entered by user
     @headerView.on 'update-swagger-ui', (data) => @updateSwaggerUi(data)
 
+  # Set an option after initializing
+  setOption: (option,value) ->
+      @options[option] = value
+
+  # Get the value of a previously set option
+  getOption: (option) ->
+      @options[option]
+
   # Event handler for when url/key is received from user
   updateSwaggerUi: (data) ->
-    @options.discoveryUrl = data.discoveryUrl
-    @options.apiKey = data.apiKey
+    @options.url = data.url
     @load()
 
   # Create an api and render
   load: ->
     # Initialize the API object
     @mainView?.clear()
-    @headerView.update(@options.discoveryUrl, @options.apiKey)
-    @api = new SwaggerApi(@options)
+    url = @options.url
+    if url.indexOf("http") isnt 0
+      url = @buildUrl(window.location.href.toString(), url)
+
+    @options.url = url
+    @headerView.update(url)
+
+    @api = new SwaggerClient(@options)
+    @api.build()    
+
+  # collapse all sections
+  collapseAll:() ->
+    Docs.collapseEndpointListForResource('')
+
+  # list operations for all sections
+  listAll:() ->
+    Docs.collapseOperationsForResource('')
+
+  # expand operations for all sections
+  expandAll:() ->
+    Docs.expandOperationsForResource('')
 
   # This is bound to success handler for SwaggerApi
   #  so it gets called when SwaggerApi completes loading
   render:() ->
     @showMessage('Finished Loading Resource Information. Rendering Swagger UI...')
-    @mainView = new MainView({model: @api, el: $('#' + @dom_id)}).render()
+    @mainView = new MainView({model: @api, el: $('#' + @dom_id), swaggerOptions: @options}).render()
     @showMessage()
     switch @options.docExpansion
-     when "full" then Docs.expandOperationsForResource('')
-     when "list" then Docs.collapseOperationsForResource('')
+      when "full" then @expandAll()
+      when "list" then @listAll()
     @options.onComplete(@api, @) if @options.onComplete
     setTimeout(
       =>
         Docs.shebang()
       400
     )
+
+  buildUrl: (base, url) ->
+    log "base is " + base
+    if url.indexOf("/") is 0
+      parts = base.split("/")
+      base = parts[0] + "//" + parts[2]
+      base + url
+    else
+      endOfPath = base.length
+      if base.indexOf("?") > -1
+        endOfPath = Math.min(endOfPath, base.indexOf("?"))
+      if base.indexOf("#") > -1
+        endOfPath = Math.min(endOfPath, base.indexOf("#"))
+      base = base.substring(0, endOfPath);
+      if base.indexOf( "/", base.length - 1 ) isnt -1
+        return base + url
+      return base + "/" + url
 
   # Shows message on topbar of the ui
   showMessage: (data = '') ->

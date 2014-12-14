@@ -1,9 +1,32 @@
 class ParameterView extends Backbone.View
   initialize: ->
-
+    Handlebars.registerHelper 'isArray',
+      (param, opts) ->
+        if param.type.toLowerCase() == 'array' || param.allowMultiple
+          opts.fn(@)
+        else
+          opts.inverse(@)
+          
   render: ->
+    type = @model.type || @model.dataType
+
+    if typeof type is 'undefined'
+      schema = @model.schema
+      if schema and schema['$ref']
+        ref = schema['$ref']
+        if ref.indexOf('#/definitions/') is 0
+          type = ref.substring('#/definitions/'.length)
+        else
+          type = ref
+
+    @model.type = type
+    @model.paramType = @model.in || @model.paramType
     @model.isBody = true if @model.paramType == 'body'
-    @model.isFile = true if @model.dataType == 'file'
+    @model.isFile = true if type and type.toLowerCase() == 'file'
+    @model.default = (@model.default || @model.defaultValue)
+
+    if@model.allowableValues
+      @model.isList = true
 
     template = @template()
     $(@el).html(template(@model))
@@ -19,18 +42,23 @@ class ParameterView extends Backbone.View
     else
       $('.model-signature', $(@el)).html(@model.signature)
 
+    isParam = false
+
+    if @model.isBody
+      isParam = true
+
     contentTypeModel =
-      isParam: true 
+      isParam: isParam
 
-    # support old syntax
-    if @model.supportedContentTypes
-      contentTypeModel.produces = @model.supportedContentTypes
+    contentTypeModel.consumes = @model.consumes
 
-    if @model.produces
-      contentTypeModel.produces = @model.produces
+    if isParam
+      parameterContentTypeView = new ParameterContentTypeView({model: contentTypeModel})
+      $('.parameter-content-type', $(@el)).append parameterContentTypeView.render().el
 
-    contentTypeView = new ContentTypeView({model: contentTypeModel})
-    $('.content-type', $(@el)).append contentTypeView.render().el
+    else
+      responseContentTypeView = new ResponseContentTypeView({model: contentTypeModel})
+      $('.response-content-type', $(@el)).append responseContentTypeView.render().el
 
     @
 

@@ -1,6 +1,8 @@
 fs          = require 'fs'
 path        = require 'path'
 {exec}      = require 'child_process'
+less        = require 'less'
+handlebars  = require 'handlebars'
 
 sourceFiles  = [
   'SwaggerUi'
@@ -12,6 +14,10 @@ sourceFiles  = [
   'view/ParameterView'
   'view/SignatureView'
   'view/ContentTypeView'
+  'view/ResponseContentTypeView'
+  'view/ParameterContentTypeView'
+  'view/ApiKeyButton'
+  'view/BasicAuthButton'
 ]
 
 
@@ -38,18 +44,17 @@ task 'dist', 'Build a distribution', ->
     templateContents = new Array remaining = templateFiles.length
     for file, index in templateFiles then do (file, index) ->
       console.log "   : Compiling src/main/template/#{file}"
-      exec "handlebars src/main/template/#{file} -f dist/_#{file}.js", (err, stdout, stderr) ->
+      fs.readFile "src/main/template/#{file}", 'utf8', (err, source) ->
         throw err if err
-        fs.readFile 'dist/_' + file + '.js', 'utf8', (err, fileContents) ->
-          throw err if err
-          templateContents[index] = fileContents
-          fs.unlink 'dist/_' + file + '.js'
-          if --remaining is 0
-            templateContents.push '\n\n'
-            fs.writeFile 'dist/_swagger-ui-templates.js', templateContents.join('\n\n'), 'utf8', (err) ->
-              throw err if err
-              build()
-
+        compiled = handlebars.precompile(source)
+        templateContents[index] = '(function() {\n  var template = Handlebars.template, templates = Handlebars.templates = Handlebars.templates || {};\ntemplates[\'' + file.replace('.handlebars', '') + '\'] = template(' + compiled + ');\n})();'
+        fs.unlink 'dist/_' + file + '.js', (err) ->
+          console.log "#{err.code}: #{err.path}" unless err.code == 'ENOENT'
+        if --remaining is 0
+          templateContents.push '\n\n'
+          fs.writeFile 'dist/_swagger-ui-templates.js', templateContents.join('\n\n'), 'utf8', (err) ->
+            throw err if err
+            build()
 
   build = ->
     console.log '   : Collecting Coffeescript source...'
@@ -62,20 +67,38 @@ task 'dist', 'Build a distribution', ->
         throw err if err
         fs.unlink 'dist/_swagger-ui.coffee'
         console.log '   : Combining with javascript...'
-        exec 'cat src/main/javascript/doc.js dist/_swagger-ui-templates.js dist/_swagger-ui.js > dist/swagger-ui.js', (err, stdout, stderr) ->
-          throw err if err
-          fs.unlink 'dist/_swagger-ui.js'
-          fs.unlink 'dist/_swagger-ui-templates.js'
-          console.log '   : Minifying all...'
-          exec 'java -jar "./bin/yuicompressor-2.4.7.jar" --type js -o ' + 'dist/swagger-ui.min.js ' + 'dist/swagger-ui.js', (err, stdout, stderr) ->
+
+        fs.readFile 'package.json', 'utf8', (err, fileContents) ->
+          obj = JSON.parse(fileContents)
+          exec 'echo "// swagger-ui.js" > dist/swagger-ui.js'
+          exec 'echo "// version ' + obj.version + '" >> dist/swagger-ui.js'
+          exec 'cat src/main/javascript/doc.js dist/_swagger-ui-templates.js dist/_swagger-ui.js >> dist/swagger-ui.js', (err, stdout, stderr) ->
             throw err if err
-            pack()
+            fs.unlink 'dist/_swagger-ui.js'
+            fs.unlink 'dist/_swagger-ui-templates.js'
+            console.log '   : Minifying all...'
+            exec 'java -jar "./bin/yuicompressor-2.4.7.jar" --type js -o ' + 'dist/swagger-ui.min.js ' + 'dist/swagger-ui.js', (err, stdout, stderr) ->
+              throw err if err
+              lessc()
+
+  lessc = ->
+    # Someone who knows CoffeeScript should make this more Coffee-licious
+    console.log '   : Compiling LESS...'
+
+    less.render fs.readFileSync("src/main/less/screen.less", 'utf8'), (err, css) ->
+      fs.writeFileSync("src/main/html/css/screen.css", css)
+    less.render fs.readFileSync("src/main/less/reset.less", 'utf8'), (err, css) ->
+      fs.writeFileSync("src/main/html/css/reset.css", css)
+    pack()
 
   pack = ->
     console.log '   : Packaging...'
     exec 'cp -r lib dist'
+    console.log '   : Copied swagger-ui libs'
     exec 'cp -r node_modules/swagger-client/lib/swagger.js dist/lib'
+    console.log '   : Copied swagger dependencies'
     exec 'cp -r src/main/html/* dist'
+    console.log '   : Copied html dependencies'
     console.log '   !'
 
 task 'spec', "Run the test suite", ->
@@ -105,6 +128,7 @@ task 'watch', 'Watch source files for changes and autocompile', ->
   watchFiles("src/main/template")
   watchFiles("src/main/javascript")
   watchFiles("src/main/html")
+  watchFiles("src/main/less")
   watchFiles("src/test")
 
 notify = (message) ->

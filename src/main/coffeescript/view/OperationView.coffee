@@ -1,16 +1,92 @@
 class OperationView extends Backbone.View
+  invocationUrl: null
+
   events: {
-  'submit .sandbox'         : 'submitOperation'
-  'click .submit'           : 'submitOperation'
-  'click .response_hider'   : 'hideResponse'
-  'click .toggleOperation'  : 'toggleOperationContent'
+    'submit .sandbox'         : 'submitOperation'
+    'click .submit'           : 'submitOperation'
+    'click .response_hider'   : 'hideResponse'
+    'click .toggleOperation'  : 'toggleOperationContent'
+    'mouseenter .api-ic'      : 'mouseEnter'
+    'mouseout .api-ic'        : 'mouseExit'
   }
 
-  initialize: ->
+  initialize: (opts={}) ->
+    @auths = opts.auths
+
+    @
+
+  mouseEnter: (e) ->
+    elem = $(e.currentTarget.parentNode).find('#api_information_panel')
+    x = e.pageX
+    y = e.pageY
+    scX = $(window).scrollLeft()
+    scY = $(window).scrollTop()
+    scMaxX = scX + $(window).width()
+    scMaxY = scY + $(window).height()
+    wd = elem.width()
+    hgh = elem.height()
+
+    if (x + wd > scMaxX)
+      x = scMaxX - wd
+    if (x < scX)
+      x = scX
+    if (y + hgh > scMaxY)
+      y = scMaxY - hgh
+    if (y < scY)
+      y = scY
+    pos = {}
+    pos.top = y
+    pos.left = x
+    elem.css(pos)
+    $(e.currentTarget.parentNode).find('#api_information_panel').show()
+
+  mouseExit: (e) ->
+    $(e.currentTarget.parentNode).find('#api_information_panel').hide()
 
   render: ->
-    isMethodSubmissionSupported = jQuery.inArray(@model.httpMethod, @model.supportedSubmitMethods()) >= 0
+    isMethodSubmissionSupported = true #jQuery.inArray(@model.method, @model.supportedSubmitMethods) >= 0
     @model.isReadOnly = true unless isMethodSubmissionSupported
+
+    # 1.2 syntax for description was `notes`
+    @model.description = (@model.description || @model.notes)
+    if @model.description
+      @model.description = @model.description.replace(/(?:\r\n|\r|\n)/g, '<br />')
+    @model.oauth = null
+    if @model.authorizations
+      if Array.isArray @model.authorizations
+        for auths in @model.authorizations
+          for key, auth of auths
+            for a of @auths
+              auth = @auths[a]
+              if auth.type == 'oauth2'
+                @model.oauth = {}
+                @model.oauth.scopes = []
+                for k, v of auth.value.scopes
+                  o = {scope: k, description: v}
+                  @model.oauth.scopes.push o
+      else
+        for k, v of @model.authorizations
+          if k == "oauth2"
+            if @model.oauth == null
+              @model.oauth = {}
+            if @model.oauth.scopes is undefined
+              @model.oauth.scopes = []
+            for o in v
+              @model.oauth.scopes.push o
+
+    if typeof @model.responses isnt 'undefined'
+      @model.responseMessages = []
+      for code, value of @model.responses
+        schema = null
+        schemaObj = @model.responses[code].schema
+        if schemaObj and schemaObj['$ref']
+          schema = schemaObj['$ref']
+          if schema.indexOf('#/definitions/') is 0
+            schema = schema.substring('#/definitions/'.length)
+        @model.responseMessages.push {code: code, message: value.description, responseModel: schema }
+
+    if typeof @model.responseMessages is 'undefined'
+      @model.responseMessages = []
 
     $(@el).html(Handlebars.templates.operation(@model))
 
@@ -23,31 +99,44 @@ class OperationView extends Backbone.View
       responseSignatureView = new SignatureView({model: signatureModel, tagName: 'div'})
       $('.model-signature', $(@el)).append responseSignatureView.render().el
     else
-      $('.model-signature', $(@el)).html(@model.responseClass)
+      @model.responseClassSignature = 'string'
+      $('.model-signature', $(@el)).html(@model.type)
 
     contentTypeModel =
       isParam: false
 
-    # support old syntax
-    if @model.supportedContentTypes
-      contentTypeModel.produces = @model.supportedContentTypes
+    contentTypeModel.consumes = @model.consumes
+    contentTypeModel.produces = @model.produces
 
-    if @model.produces
-      contentTypeModel.produces = @model.produces
+    for param in @model.parameters
+      type = param.type || param.dataType
+      if typeof type is 'undefined'
+        schema = param.schema
+        if schema and schema['$ref']
+          ref = schema['$ref']
+          if ref.indexOf('#/definitions/') is 0
+            type = ref.substring('#/definitions/'.length)
+          else
+            type = ref
+      if type and type.toLowerCase() == 'file'
+        if !contentTypeModel.consumes
+          contentTypeModel.consumes = 'multipart/form-data'
+      param.type = type
 
-    contentTypeView = new ContentTypeView({model: contentTypeModel})
-    $('.content-type', $(@el)).append contentTypeView.render().el
+    responseContentTypeView = new ResponseContentTypeView({model: contentTypeModel})
+    $('.response-content-type', $(@el)).append responseContentTypeView.render().el
 
     # Render each parameter
-    @addParameter param for param in @model.parameters
+    @addParameter param, contentTypeModel.consumes for param in @model.parameters
 
     # Render each response code
-    @addStatusCode statusCode for statusCode in @model.errorResponses
+    @addStatusCode statusCode for statusCode in @model.responseMessages
 
     @
 
-  addParameter: (param) ->
+  addParameter: (param, consumes) ->
     # Render a parameter
+    param.consumes = consumes
     paramView = new ParameterView({model: param, tagName: 'tr', readOnly: @model.isReadOnly})
     $('.operation-params', $(@el)).append paramView.render().el
 
@@ -68,107 +157,140 @@ class OperationView extends Backbone.View
         $(@).wiggle
           callback: => $(@).focus()
         error_free = false
+    form.find("textarea.required").each ->
+      $(@).removeClass "error"
+      if jQuery.trim($(@).val()) is ""
+        $(@).addClass "error"
+        $(@).wiggle
+          callback: => $(@).focus()
+        error_free = false
 
     # if error free submit it
     if error_free
       map = {}
-      for o in form.serializeArray()
+      opts = {parent: @}
+
+      isFileUpload = false
+
+      for o in form.find("input")
+        if(o.value? && jQuery.trim(o.value).length > 0)
+          map[o.name] = o.value
+        if o.type is "file"
+          isFileUpload = true
+
+      for o in form.find("textarea")
         if(o.value? && jQuery.trim(o.value).length > 0)
           map[o.name] = o.value
 
-      isFileUpload = form.children().find('input[type~="file"]').size() != 0
+      for o in form.find("select") 
+        val = this.getSelectedValue o
+        if(val? && jQuery.trim(val).length > 0)
+          map[o.name] = val
 
-      isFormPost = false
-      consumes = "application/json"
-      if @model.consumes and @model.consumes.length > 0
-        # honor the consumes setting above everything else
-        consumes = @model.consumes[0]
-      else 
-        for o in @model.parameters
-          if o.paramType == 'form'
-            isFormPost = true
-            consumes = false
+      opts.responseContentType = $("div select[name=responseContentType]", $(@el)).val()
+      opts.requestContentType = $("div select[name=parameterContentType]", $(@el)).val()
 
-        if isFileUpload
-          consumes = false
-        else if @model.httpMethod.toLowerCase() == "post" and isFormPost is false
-          consumes = "application/json"
-
-      if isFileUpload
-        # requires HTML5 compatible browser
-        bodyParam = new FormData()
-
-        # add params except file
-        for param in @model.parameters
-          if (param.paramType is 'body' or 'form') and param.name isnt 'file' and map[param.name]?
-            bodyParam.append(param.name, map[param.name])
-
-        # add files
-        $.each form.children().find('input[type~="file"]'), (i, el) ->
-          bodyParam.append($(el).attr('name'), el.files[0])
-
-        console.log(bodyParam)
-      else if isFormPost
-        bodyParam = new FormData()
-        for param in @model.parameters
-          if map[param.name]?
-            bodyParam.append(param.name, map[param.name])
-      else
-        bodyParam = null
-        for param in @model.parameters
-          if param.paramType is 'body'
-            bodyParam = map[param.name]
-
-      log "bodyParam = " + bodyParam 
-
-      headerParams = null
-      invocationUrl = 
-        if @model.supportHeaderParams()
-          headerParams = @model.getHeaderParams(map)
-          @model.urlify(map, false)
-        else
-          @model.urlify(map, true)
-
-      log 'submitting ' + invocationUrl
-
-
-      $(".request_url", $(@el)).html "<pre>" + invocationUrl + "</pre>"
       $(".response_throbber", $(@el)).show()
+      if isFileUpload
+        @handleFileUpload map, form
+      else
+        @model.do(map, opts, @showCompleteStatus, @showErrorStatus, @)
 
-      obj = 
-        type: @model.httpMethod
-        url: invocationUrl
-        headers: headerParams
-        data: bodyParam
-        contentType: consumes
-        dataType: 'json'
-        processData: false
-        error: (xhr, textStatus, error) =>
-          @showErrorStatus(xhr, textStatus, error)
-        success: (data) =>
-          @showResponse(data)
-        complete: (data) =>
-          @showCompleteStatus(data)
+  success: (response, parent) ->
+    parent.showCompleteStatus response
 
-      paramContentTypeField = $("td select[name=contentType]", $(@el)).val()
-      if paramContentTypeField
-        obj.contentType = paramContentTypeField
+  handleFileUpload: (map, form) ->
+    for o in form.serializeArray()
+      if(o.value? && jQuery.trim(o.value).length > 0)
+        map[o.name] = o.value
 
-      log 'content type = ' + obj.contentType
+    # requires HTML5 compatible browser
+    bodyParam = new FormData()
+    params = 0
 
-      if not obj.data or (obj.type is 'GET' or obj.type is 'DELETE')
-        obj.contentType = false
+    # add params
+    for param in @model.parameters
+      if param.paramType is 'form'
+        if param.type.toLowerCase() isnt 'file' and map[param.name] != undefined
+            bodyParam.append(param.name, map[param.name])
 
-      log 'content type is now = ' + obj.contentType
+    # headers in operation
+    headerParams = {}
+    for param in @model.parameters
+      if param.paramType is 'header'
+        headerParams[param.name] = map[param.name]
 
-      responseContentTypeField = $('.content > .content-type > div > select[name=contentType]', $(@el)).val()
-      if responseContentTypeField
-        obj.headers = if obj.headers? then obj.headers else {}
-        obj.headers.accept = responseContentTypeField
-      
-      jQuery.ajax(obj)
-      false
-      # $.getJSON(invocationUrl, (r) => @showResponse(r)).complete((r) => @showCompleteStatus(r)).error (r) => @showErrorStatus(r)
+    # add files
+    for el in form.find('input[type~="file"]')
+      if typeof el.files[0] isnt 'undefined'
+        bodyParam.append($(el).attr('name'), el.files[0])
+        params += 1
+
+    @invocationUrl = 
+      if @model.supportHeaderParams()
+        headerParams = @model.getHeaderParams(map)
+        @model.urlify(map, false)
+      else
+        @model.urlify(map, true)
+
+    $(".request_url", $(@el)).html("<pre></pre>") 
+    $(".request_url pre", $(@el)).text(@invocationUrl);
+    
+    obj = 
+      type: @model.method
+      url: @invocationUrl
+      headers: headerParams
+      data: bodyParam
+      dataType: 'json'
+      contentType: false
+      processData: false
+      error: (data, textStatus, error) =>
+        @showErrorStatus(@wrap(data), @)
+      success: (data) =>
+        @showResponse(data, @)
+      complete: (data) =>
+        @showCompleteStatus(@wrap(data), @)
+
+    # apply authorizations
+    if window.authorizations
+      window.authorizations.apply obj
+
+    if params is 0
+      obj.data.append("fake", "true");
+
+    jQuery.ajax(obj)
+    false
+    # end of file-upload nastiness
+
+  # wraps a jquery response as a shred response
+
+  wrap: (data) ->
+    headers = {}
+    headerArray = data.getAllResponseHeaders().split("\r")
+    for i in headerArray
+      h = i.split(':')
+      if (h[0] != undefined && h[1] != undefined)
+        headers[h[0].trim()] = h[1].trim()
+
+    o = {}
+    o.content = {}
+    o.content.data = data.responseText
+    o.headers = headers
+    o.request = {}
+    o.request.url = @invocationUrl
+    o.status = data.status
+    o
+
+  getSelectedValue: (select) ->
+    if !select.multiple 
+      select.value
+    else
+      options = []
+      options.push opt.value for opt in select.options when opt.selected
+      if options.length > 0 
+        options
+      else
+        null
 
   # handler for hide response link
   hideResponse: (e) ->
@@ -182,14 +304,13 @@ class OperationView extends Backbone.View
     prettyJson = JSON.stringify(response, null, "\t").replace(/\n/g, "<br>")
     $(".response_body", $(@el)).html escape(prettyJson)
 
-
   # Show error from server
-  showErrorStatus: (data) ->
-    @showStatus data
+  showErrorStatus: (data, parent) ->
+    parent.showStatus data
 
   # show the status codes
-  showCompleteStatus: (data) ->
-    @showStatus data
+  showCompleteStatus: (data, parent) ->
+    parent.showStatus data
 
   # Adapted from http://stackoverflow.com/a/2893259/454004
   formatXml: (xml) ->
@@ -251,22 +372,60 @@ class OperationView extends Backbone.View
     
 
   # puts the response data in UI
-  showStatus: (data) ->
-    try
-      code = $('<code />').text(JSON.stringify(JSON.parse(data.responseText), null, 2))
+  showStatus: (response) ->
+    if response.content is undefined
+      content = response.data
+      url = response.url
+    else
+      content = response.content.data
+      url = response.request.url
+    headers = response.headers
+
+    # if server is nice, and sends content-type back, we can use it
+    contentType = null
+    if headers
+      contentType = headers["Content-Type"] or headers["content-type"]
+      if contentType
+        contentType = contentType.split(";")[0].trim()
+
+    if !content
+      code = $('<code />').text("no content")
       pre = $('<pre class="json" />').append(code)
-    catch error
-      code = $('<code />').text(@formatXml(data.responseText))
+    else if contentType is "application/json" || /\+json$/.test(contentType)
+      json = null
+      try
+        json = JSON.stringify(JSON.parse(content), null, "  ")
+      catch e
+        json = "can't parse JSON.  Raw result:\n\n" + content
+      code = $('<code />').text(json)
+      pre = $('<pre class="json" />').append(code)
+    else if contentType is "application/xml" || /\+xml$/.test(contentType)
+      code = $('<code />').text(@formatXml(content))
       pre = $('<pre class="xml" />').append(code)
+    else if contentType is "text/html"
+      code = $('<code />').html(_.escape(content))
+      pre = $('<pre class="xml" />').append(code)
+    else if /^image\//.test(contentType)
+      pre = $('<img>').attr('src',url)
+    else
+      # don't know what to render!
+      code = $('<code />').text(content)
+      pre = $('<pre class="json" />').append(code)
+
     response_body = pre
-    $(".response_code", $(@el)).html "<pre>" + data.status + "</pre>"
+    $(".request_url", $(@el)).html("<pre></pre>") 
+    $(".request_url pre", $(@el)).text(url);
+    $(".response_code", $(@el)).html "<pre>" + response.status + "</pre>"
     $(".response_body", $(@el)).html response_body
-    $(".response_headers", $(@el)).html "<pre>" + data.getAllResponseHeaders() + "</pre>"
+    $(".response_headers", $(@el)).html "<pre>" + _.escape(JSON.stringify(response.headers, null, "  ")).replace(/\n/g, "<br>") + "</pre>"
     $(".response", $(@el)).slideDown()
     $(".response_hider", $(@el)).show()
     $(".response_throbber", $(@el)).hide()
-    hljs.highlightBlock($('.response_body', $(@el))[0])
+    response_body_el = $('.response_body', $(@el))[0]
+    # only highlight the response if response is less than threshold, default state is highlight response
+    opts = @options.swaggerOptions
+    if opts.highlightSizeThreshold && response.data.length > opts.highlightSizeThreshold then response_body_el else hljs.highlightBlock(response_body_el)
 
   toggleOperationContent: ->
-    elem = $('#' + Docs.escapeResourceName(@model.resourceName) + "_" + @model.nickname + "_" + @model.httpMethod + "_" + @model.number + "_content")
+    elem = $('#' + Docs.escapeResourceName(@model.parentId + "_" + @model.nickname + "_content"))
     if elem.is(':visible') then Docs.collapseOperation(elem) else Docs.expandOperation(elem)

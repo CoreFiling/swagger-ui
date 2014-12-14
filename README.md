@@ -1,15 +1,29 @@
-Swagger UI
-==========
+# Swagger UI
 
-Swagger UI is part of [Swagger](http://swagger.wordnik.com/) project.  The Swagger project allows you to produce, visualize and consume your OWN RESTful
-services.  No proxy or 3rd party services required.  Do it your own way.
+Swagger UI is part of the Swagger project.  The Swagger project allows you to produce, visualize and consume your OWN RESTful services.  No proxy or 3rd party services required.  Do it your own way.
 
 Swagger UI is a dependency-free collection of HTML, Javascript, and CSS assets that dynamically
-generate beautiful documentation and sandbox from a [Swagger-compliant](https://github.com/wordnik/swagger-core/wiki) API. Because Swagger UI has no
-dependencies, you can host it in any server environment, or on your local machine.
+generate beautiful documentation and sandbox from a Swagger-compliant API. Because Swagger UI has no dependencies, you can host it in any server environment, or on your local machine.
 
-How to Use It
--------------
+## What's Swagger?
+
+The goal of Swagger™ is to define a standard, language-agnostic interface to REST APIs which allows both humans and computers to discover and understand the capabilities of the service without access to source code, documentation, or through network traffic inspection. When properly defined via Swagger, a consumer can understand and interact with the remote service with a minimal amount of implementation logic. Similar to what interfaces have done for lower-level programming, Swagger removes the guesswork in calling the service.
+
+
+Check out [Swagger-Spec](https://github.com/swagger-api/swagger-spec) for additional information about the Swagger project, including additional libraries with support for other languages and more. 
+
+
+## Compatibility
+The Swagger Specification has undergone 3 revisions since initial creation in 2010.  Compatibility between swagger-ui and the Swagger specification is as follows:
+
+Swagger UI Version | Release Date | Swagger Spec compatibility | Notes | Status
+------------------ | ------------ | -------------------------- | ----- | ------
+2.1.0-alpha.1 (in development)  | 2014-10-06          | 1.1, 1.2, 2.0 | [master](https://github.com/swagger-api/swagger-ui/tree/master) | [Issues](https://github.com/swagger-api/swagger-ui/milestones/v2.1.0)
+2.0.24             | 2014-09-12   | 1.1, 1.2 | [tag v2.0.24](https://github.com/swagger-api/swagger-ui/tree/v2.0.24) | 
+1.0.13             | 2013-03-08   | 1.1, 1.2 | [tag v1.0.13](https://github.com/swagger-api/swagger-ui/tree/v1.0.13) |
+1.0.1              | 2011-10-11   | 1.0, 1.1 | [tag v1.0.1](https://github.com/swagger-api/swagger-ui/tree/v1.0.1)   |
+
+## How to Use It
 
 ### Download
 You can use the swagger-ui code AS-IS!  No need to build or recompile--just clone this repo and use the pre-built files in the `dist` folder.  If you like swagger-ui as-is, stop here.
@@ -17,13 +31,13 @@ You can use the swagger-ui code AS-IS!  No need to build or recompile--just clon
 ### Build
 You can rebuild swagger-ui on your own to tweak it or just so you can say you did.  To do so, follow these steps:
 
-1. npm install
-2. npm run-script build
-3. You should see the distribution under the dist folder. Open ./dist/index.html to launch Swagger UI in a browser
+1. install [handlebars](http://handlebarsjs.com/)
+2. npm install
+3. npm run-script build
+4. You should see the distribution under the dist folder. Open ./dist/index.html to launch Swagger UI in a browser
 
 ### Use
-Once you open the Swagger UI, it will load the [Swagger Petstore](http://petstore.swagger.wordnik.com/api/resources.json) service and show its APIs.
-You can enter your own server url and click explore to view the API.
+Once you open the Swagger UI, it will load the [Swagger Petstore](http://petstore.swagger.wordnik.com/api/api-docs) service and show its APIs.  You can enter your own server url and click explore to view the API.
 
 ### Customize
 You may choose to customize Swagger UI for your organization. Here is an overview of whats in its various directories:
@@ -39,63 +53,66 @@ You may choose to customize Swagger UI for your organization. Here is an overvie
     -    src/main/javascript: some legacy javascript referenced by CoffeeScript code
 
 ### SwaggerUi
-To use swagger-ui you should take a look at the [source of swagger-ui html page](https://github.com/wordnik/swagger-ui/tree/master/src/main/html) and customize it. This basically requires you to instantiate a SwaggerUi object and call load() on it as below:
+To use swagger-ui you should take a look at the [source of swagger-ui html page](https://github.com/swagger-api/swagger-ui/tree/master/src/main/html) and customize it. This basically requires you to instantiate a SwaggerUi object and call load() on it as below:
+
 ```javascript
     window.swaggerUi = new SwaggerUi({
-        discoveryUrl:"http://petstore.swagger.wordnik.com/api/resources.json",
-        dom_id:"swagger-ui-container",
-        apiKey:"special-key",
-        supportHeaderParams: false,
-        headers: { "Authorization": "XXXX", "someOtherHeader": "YYYY" },
-        supportedSubmitMethods: ['get', 'post', 'put']
+        url:"http://petstore.swagger.wordnik.com/api/api-docs",
+        dom_id:"swagger-ui-container"
     });
 
     window.swaggerUi.load();
 ```
-* *discoveryUrl* parameter should point to a resource listing url as per [Swagger Spec](https://github.com/wordnik/swagger-core/wiki)
+* *url* parameter should point to a resource listing url as per [Swagger Spec](https://github.com/swagger-api/swagger-spec/)
 * *dom_id parameter* is the the id of a dom element inside which SwaggerUi will put the user interface for swagger
 * *booleanValues* SwaggerUI renders boolean data types as a dropdown. By default it provides a 'true' and 'false' string as the possible choices. You can use this parameter to change the values in dropdown to be something else, for example 0 and 1 by setting booleanValues to new Array(0, 1)
 * *docExpansion* controls how the API listing is displayed. It can be set to 'none' (default), 'list' (shows operations for each resource), or 'full' (fully expanded: shows operations and their details)
+* *sorter* apply a sort to the API list. It can be 'alpha' (sort paths alphanumerically) or 'method' (sort operations by HTTP method). Default is the order returned by the server unchanged.
 * *onComplete* is a callback function parameter which can be passed to be notified of when SwaggerUI has completed rendering successfully.
 * *onFailure* is a callback function parameter which can be passed to be notified of when SwaggerUI encountered a failure was unable to render.
+* *highlightSizeThreshold* any size response below this threshold will be highlighted syntactically, attempting to highlight large responses can lead to browser hangs, not including a threshold will default to highlight all returned responses
 * All other parameters are explained in greater detail below
 
 
 ### HTTP Methods and API Invocation
-swagger-ui supports invocation of all HTTP methods APIs but only GET methods APIs are enabled by default. You can choose to enable other HTTP methods like POST, PUT and DELETE. This can be enabled by [setting the supportedSubmitMethods parameter when creating SwaggerUI instance](https://github.com/wordnik/swagger-ui/blob/f2e63c65a759421aad590b7275371cd0c06c74ea/src/main/html/index.html#L49).
+swagger-ui supports invocation of all HTTP methods APIs including GET, PUT, POST, DELETE, PATCH, OPTIONS.  These are handled in the [swagger-js](https://github.com/swagger-api/swagger-js) project, please see there for specifics on their usage.
 
-For example if you wanted to enable GET, POST and PUT but not for DELETE, you'd set this as:
-
-    supportedSubmitMethods: ['get', 'post', 'put']
-
-_Note that for POST/PUT body, you'd need to paste in the request data in an appropriate format which your service can unmarshall_
 
 ### Header Parameters
-header parameters are supported. However because of [Cross-Origin Resource Sharing](http://www.w3.org/TR/cors/) restrictions, swagger-ui, by default, does not send header parameters. This can be enabled by [setting the supportHeaderParams to true when creating SwaggerUI instance](https://github.com/wordnik/swagger-ui/blob/f2e63c65a759421aad590b7275371cd0c06c74ea/src/main/html/index.html#L48) as below:
+Header params are supported through a pluggable mechanism in [swagger-js](https://github.com/swagger-api/swagger-js).  You can see the [index.html](https://github.com/swagger-api/swagger-ui/blob/master/dist/index.html) for a sample of how to dynamically set headers:
 
-    supportHeaderParams: true
+```js
+// add a new ApiKeyAuthorization when the api-key changes in the ui.
+$('#input_apiKey').change(function() {
+  var key = $('#input_apiKey')[0].value;
+  if(key && key.trim() != "") {
+    window.authorizations.add("key", new ApiKeyAuthorization("api_key", key, "header"));
+  }
+})
+```
+
+This will add header `api_key` with value `key` on every call to the server.  You can substitute `query` to send the values as a query param.
 
 ### Custom Header Parameters - (For Basic auth etc)
 If you have some header parameters which you need to send with every request, use the headers as below:
 
-     headers: { "Authorization": "XXXX", "someOtherHeader": "YYYY" }
+```js
+window.authorizations.add("key", new ApiKeyAuthorization("Authorization", "XXXX", "header"));
+```
 
-### Api Key Parameter
-If you enter an api key in swagger-ui, it sends a parameter named 'api\_key' as a query (or as a header param if you've enabled it as described above). You may not want to use the name 'api\_key' as the name of this parameter. You can change its name by setting the _apiKeyName_ parameter when you instantiate a SwaggerUI instance. For example to call it 'sessionId'
+Note!  You can pass multiple header params on a single request, just use unique names for them (`key` is used in the above example).
 
-    apiKeyName: "sessionId"
+## How to Improve It
 
-How to Improve It
------------------
+Create your own fork of [swagger-api/swagger-ui](https://github.com/swagger-api/swagger-ui)
 
-Create your own fork of [wordnik/swagger-ui](https://github.com/wordnik/swagger-ui)
+To share your changes, [submit a pull request](https://github.com/swagger-api/swagger-ui/pull/new/master).
 
-To share your changes, [submit a pull request](https://github.com/wordnik/swagger-ui/pull/new/master).
+Since the javascript files are compiled from coffeescript, please submit changes in the *.coffee files!  We have to reject changes only in the .js files as they will be lost on each build of the ui.
 
-License
--------
+## License
 
-Copyright 2011-2013 Wordnik, Inc.
+Copyright 2011-2014 Reverb technologies, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
